@@ -1,0 +1,88 @@
+< !DOCTYPE html >
+    <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Video Streaming POC</title>
+                    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+                    <style>
+                        body {font - family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+                        .container {margin - top: 20px; }
+                        video {width: 100%; max-width: 640px; background: #000; }
+                        .upload-section {border: 2px dashed #ccc; padding: 20px; text-align: center; margin-bottom: 20px; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Video Streaming POC</h1>
+
+                    <div class="upload-section">
+                        <h2>Upload Video</h2>
+                        <input type="file" id="videoInput" accept="video/mp4">
+                            <button onclick="uploadVideo()">Upload</button>
+                            <p id="status"></p>
+                    </div>
+
+                    <div class="container" id="playerContainer" style="display:none;">
+                        <h2>Player</h2>
+                        <video id="video" controls></video>
+                        <p>Stream URL: <span id="streamUrl"></span></p>
+                    </div>
+
+                    <script>
+                        async function uploadVideo() {
+            const input = document.getElementById('videoInput');
+                        const status = document.getElementById('status');
+
+                        if (input.files.length === 0) {
+                            alert('Please select a file!');
+                        return;
+            }
+
+                        const file = input.files[0];
+                        const formData = new FormData();
+                        formData.append('video', file);
+
+                        status.textContent = 'Uploading...';
+
+                        try {
+                const response = await fetch('/upload', {
+                            method: 'POST',
+                        body: formData
+                });
+
+                        const data = await response.json();
+                        status.textContent = `Upload successful! Transcoding started. Video ID: ${data.videoId}`;
+
+                        // Show player immediately, though it might take a few seconds for HLS to be ready
+                        setupPlayer(data.streamUrl);
+
+            } catch (err) {
+                            console.error(err);
+                        status.textContent = 'Upload failed!';
+            }
+        }
+
+                        function setupPlayer(src) {
+                            document.getElementById('playerContainer').style.display = 'block';
+                        document.getElementById('streamUrl').textContent = src;
+
+                        const video = document.getElementById('video');
+
+                        // HLS.js logic
+                        if (Hls.isSupported()) {
+                const hls = new Hls();
+                        hls.loadSource(src);
+                        hls.attachMedia(video);
+                        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                            video.play();
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                            video.src = src;
+                        video.addEventListener('loadedmetadata', function() {
+                            video.play();
+                });
+            }
+        }
+                    </script>
+                </body>
+            </html>

@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS specific
+.DS_Store
+
+# Environment variables
+.env
+
+# Video streaming temp files and outputs
+videos/temp/
+public/videos/
