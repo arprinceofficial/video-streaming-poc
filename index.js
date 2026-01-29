@@ -37,33 +37,78 @@ const upload = multer({ storage: storage });
 app.use(express.static('public'));
 
 // Transcoding Function
+// Transcoding Function
 const transcodeVideo = (inputPath, outputDir, done) => {
-    console.log(`Starting transcoding for ${inputPath}...`);
+    console.log(`Starting transcoding for ${inputPath} to Multi-Quality HLS...`);
 
-    // Ensure output directory exists
+    // Ensure output directory exists (and subdirectories for variants if needed, 
+    // but ffmpeg var_stream_map with pattern usually handles this if parent exists. 
+    // Safest is to let ffmpeg create files in the outputDir).
     if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    // Example: Create 720p HLS stream
+    // Create a robust ffmpeg command for ABR
     ffmpeg(inputPath)
         .addOptions([
-            '-profile:v main',
-            '-vf scale=w=1280:h=720:force_original_aspect_ratio=decrease',
-            '-c:a aac',
-            '-ar 48000',
-            '-b:a 128k',
+            // Map the video and audio streams 3 times (for 3 qualities)
+            '-map 0:v:0', '-map 0:a:0',
+            '-map 0:v:0', '-map 0:a:0',
+            '-map 0:v:0', '-map 0:a:0',
+
+            // Video codec
             '-c:v h264',
-            '-crf 20',
+            '-crf 22',
             '-g 48',
             '-keyint_min 48',
             '-sc_threshold 0',
-            '-start_number 0',
-            '-hls_time 4',
-            '-hls_list_size 0',
-            '-f hls'
+            '-reset_timestamps 1',
+
+            // Audio codec
+            '-c:a aac',
+            '-ar 48000',
+
+            // --- 360p Stream (Stream 0) ---
+            '-filter:v:0 scale=w=-2:h=360',
+            '-maxrate:v:0 800k', '-bufsize:v:0 1200k',
+            '-b:a:0 96k',
+
+            // --- 480p Stream (Stream 1) ---
+            '-filter:v:1 scale=w=-2:h=480',
+            '-maxrate:v:1 1400k', '-bufsize:v:1 2100k',
+            '-b:a:1 128k',
+
+            // --- 720p Stream (Stream 2) ---
+            '-filter:v:2 scale=w=-2:h=720',
+            '-maxrate:v:2 2800k', '-bufsize:v:2 4200k',
+            '-b:a:2 128k',
+
+            // HLS Settings
+            '-f hls',
+            '-hls_time 6',
+            '-hls_playlist_type vod',
+            '-hls_flags independent_segments',
+
+            // Creating the variant streams and master playlist
+            // This maps the scaled video/audio pairs to variant streams v:0, v:1, v:2
+            '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2',
+
+            // Naming convention for the segments and playlists
+            // outputDir/v0/fileSequence0.ts, outputDir/v1/..., etc.
+            // But to keep it simple in one folder or use pattern:
+            // We'll use a pattern that creates subdirectories v%v (v0, v1, v2)
+            // You may need to create these folders manually if ffmpeg doesn't.
+            // Let's use a flat structure with prefixes to be safe and simple:
+            // v0_segment...
+            // OR robust usage with "%v":
+
+            '-master_pl_name master.m3u8',
+            '-hls_segment_filename ' + path.join(outputDir, 'v%v_segment%d.ts')
         ])
-        .output(path.join(outputDir, 'output.m3u8'))
+        .output(path.join(outputDir, 'v%v_code.m3u8')) // Variant playlists
+        .on('start', function (commandLine) {
+            console.log('Spawned Ffmpeg with command: ' + commandLine);
+        })
         .on('end', () => {
             console.log('Transcoding finished successfully');
             done(null);
@@ -92,14 +137,14 @@ app.post('/upload', upload.single('video'), (req, res) => {
         if (err) {
             console.error('Transcoding failed');
         } else {
-            console.log(`Video available at /videos/${videoId}/output.m3u8`);
+            console.log(`Video available at /videos/${videoId}/master.m3u8`);
         }
     });
 
     res.json({
         message: 'Video upload started. Transcoding in progress...',
         videoId: videoId,
-        streamUrl: `/videos/${videoId}/output.m3u8` // This URL will be valid once transcoding finishes
+        streamUrl: `/videos/${videoId}/master.m3u8` // Point to MASTER playlist
     });
 });
 
