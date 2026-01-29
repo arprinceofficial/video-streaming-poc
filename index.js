@@ -51,10 +51,13 @@ const transcodeVideo = (inputPath, outputDir, done) => {
     // Create a robust ffmpeg command for ABR
     ffmpeg(inputPath)
         .addOptions([
-            // Map the video and audio streams 3 times (for 3 qualities)
-            '-map 0:v:0', '-map 0:a:0',
-            '-map 0:v:0', '-map 0:a:0',
-            '-map 0:v:0', '-map 0:a:0',
+            // Map the video and audio streams 6 times (for 6 qualities)
+            '-map 0:v:0', '-map 0:a:0', // 360p
+            '-map 0:v:0', '-map 0:a:0', // 480p
+            '-map 0:v:0', '-map 0:a:0', // 720p
+            '-map 0:v:0', '-map 0:a:0', // 1080p
+            '-map 0:v:0', '-map 0:a:0', // 1440p (2K)
+            '-map 0:v:0', '-map 0:a:0', // 2160p (4K)
 
             // Video codec
             '-c:v h264',
@@ -63,6 +66,7 @@ const transcodeVideo = (inputPath, outputDir, done) => {
             '-keyint_min 48',
             '-sc_threshold 0',
             '-reset_timestamps 1',
+            '-preset veryfast', // Speed up encoding for 4K
 
             // Audio codec
             '-c:a aac',
@@ -83,6 +87,21 @@ const transcodeVideo = (inputPath, outputDir, done) => {
             '-maxrate:v:2 2800k', '-bufsize:v:2 4200k',
             '-b:a:2 128k',
 
+            // --- 1080p Stream (Stream 3) ---
+            '-filter:v:3 scale=w=-2:h=1080',
+            '-maxrate:v:3 5000k', '-bufsize:v:3 7500k',
+            '-b:a:3 192k',
+
+            // --- 1440p Stream (Stream 4) ---
+            '-filter:v:4 scale=w=-2:h=1440',
+            '-maxrate:v:4 9000k', '-bufsize:v:4 13500k',
+            '-b:a:4 192k',
+
+            // --- 2160p Stream (Stream 5) ---
+            '-filter:v:5 scale=w=-2:h=2160',
+            '-maxrate:v:5 17000k', '-bufsize:v:5 25500k',
+            '-b:a:5 192k',
+
             // HLS Settings
             '-f hls',
             '-hls_time 6',
@@ -90,8 +109,7 @@ const transcodeVideo = (inputPath, outputDir, done) => {
             '-hls_flags independent_segments',
 
             // Creating the variant streams and master playlist
-            // This maps the scaled video/audio pairs to variant streams v:0, v:1, v:2
-            '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2',
+            '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2 v:3,a:3 v:4,a:4 v:5,a:5',
 
             // Naming convention for the segments and playlists
             // outputDir/v0/fileSequence0.ts, outputDir/v1/..., etc.
