@@ -205,13 +205,37 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     }
 });
 
-// GET all videos
+// GET all videos with Pagination and Search
 app.get('/videos', async (req, res) => {
     try {
-        const videos = await prisma.video.findMany({
-            orderBy: { createdAt: 'desc' }
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const search = req.query.search || '';
+        const skip = (page - 1) * limit;
+
+        const where = {
+            title: {
+                contains: search,
+                mode: 'insensitive', // Case-insensitive search
+            },
+        };
+
+        const [videos, total] = await prisma.$transaction([
+            prisma.video.findMany({
+                where: where,
+                orderBy: { createdAt: 'desc' },
+                skip: skip,
+                take: limit,
+            }),
+            prisma.video.count({ where: where }),
+        ]);
+
+        res.json({
+            data: videos,
+            total,
+            page,
+            totalPages: Math.ceil(total / limit),
         });
-        res.json(videos);
     } catch (error) {
         console.error("Error fetching videos:", error);
         res.status(500).send("Error fetching videos");
