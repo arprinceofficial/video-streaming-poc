@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -32,7 +33,7 @@
             width: 100%;
             background-color: var(--surface-color);
             padding: 16px 24px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
             position: sticky;
             top: 0;
             z-index: 10;
@@ -95,7 +96,8 @@
             border-radius: 12px;
             padding: 24px;
             margin-top: 24px;
-            display: none; /* Hidden by default */
+            display: none;
+            /* Hidden by default */
         }
 
         video {
@@ -112,7 +114,7 @@
             width: 360px;
             background-color: #1f1f1f;
             border-radius: 12px;
-            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
             display: none;
             flex-direction: column;
             overflow: hidden;
@@ -168,24 +170,25 @@
             width: 40px;
             height: 40px;
         }
-        
+
         .spinner-svg {
             transform: rotate(-90deg);
             width: 40px;
             height: 40px;
         }
-        
+
         .spinner-circle-bg {
             fill: none;
             stroke: #444;
             stroke-width: 4;
         }
-        
+
         .spinner-circle {
             fill: none;
             stroke: var(--primary-color);
             stroke-width: 4;
-            stroke-dasharray: 100; /* Approx Circumference for r=16 */
+            stroke-dasharray: 100;
+            /* Approx Circumference for r=16 */
             stroke-dashoffset: 100;
             transition: stroke-dashoffset 0.1s linear;
         }
@@ -211,9 +214,9 @@
         .hidden-input {
             display: none;
         }
-
     </style>
 </head>
+
 <body>
 
     <header class="app-header">
@@ -221,22 +224,22 @@
     </header>
 
     <div class="main-content">
-        
+
         <div class="upload-card" onclick="document.getElementById('videoInput').click()">
             <div class="upload-icon">↑</div>
             <h3>Select video to upload</h3>
             <p style="color: var(--text-secondary)">Or drag and drop video files</p>
             <button class="upload-btn">SELECT FILES</button>
-            <input type="file" id="videoInput" class="hidden-input" accept="video/mp4,video/*" onchange="handleFileSelect(event)">
+            <input type="file" id="videoInput" class="hidden-input" accept="video/mp4,video/*"
+                onchange="handleFileSelect(event)">
         </div>
 
-        <div class="player-container" id="playerContainer">
-            <h2 style="margin-top: 0; font-size: 1.2rem; margin-bottom: 16px;">Latest Upload</h2>
-            <video id="video" controls></video>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 12px; word-break: break-all;">
-                Stream URL: <span id="streamUrl" style="color: var(--primary-color);"></span>
-            </p>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="/videos.html" class="upload-btn" style="text-decoration: none; display: inline-block;">Show All
+                Videos</a>
         </div>
+
+
 
     </div>
 
@@ -252,10 +255,10 @@
         <div class="manager-body">
             <div class="upload-item">
                 <div class="spinner-container">
-                   <svg class="spinner-svg" viewBox="0 0 40 40">
-                       <circle class="spinner-circle-bg" cx="20" cy="20" r="16"></circle>
-                       <circle class="spinner-circle" id="progressCircle" cx="20" cy="20" r="16"></circle>
-                   </svg>
+                    <svg class="spinner-svg" viewBox="0 0 40 40">
+                        <circle class="spinner-circle-bg" cx="20" cy="20" r="16"></circle>
+                        <circle class="spinner-circle" id="progressCircle" cx="20" cy="20" r="16"></circle>
+                    </svg>
                 </div>
                 <div class="file-info">
                     <div class="file-name" id="uploadFileName">filename.mp4</div>
@@ -282,10 +285,10 @@
             // Show Manager
             const manager = document.getElementById('uploadManager');
             manager.style.display = 'flex';
-            
+
             document.getElementById('uploadFileName').textContent = file.name;
             document.getElementById('headerTitle').textContent = "Uploading 1 video";
-            
+
             // Reset Progress
             updateProgress(0);
             document.getElementById('uploadStatusText').textContent = "Waiting to start...";
@@ -296,17 +299,17 @@
             currentXhr = new XMLHttpRequest();
             startTime = Date.now();
 
-            currentXhr.upload.addEventListener('progress', function(e) {
+            currentXhr.upload.addEventListener('progress', function (e) {
                 if (e.lengthComputable) {
                     const percentComplete = (e.loaded / e.total) * 100;
-                    
+
                     // Calculate Time Remaining
                     const timeElapsed = (Date.now() - startTime) / 1000; // seconds
                     const uploadSpeed = e.loaded / timeElapsed; // bytes per second
                     const totalBytes = e.total;
                     const remainingBytes = totalBytes - e.loaded;
                     const secondsLeft = remainingBytes / uploadSpeed;
-                    
+
                     let timeLeftStr = "";
                     if (secondsLeft < 60) {
                         timeLeftStr = `${Math.ceil(secondsLeft)} sec left`;
@@ -319,30 +322,29 @@
                 }
             });
 
-            currentXhr.addEventListener('load', function() {
+            currentXhr.addEventListener('load', function () {
                 if (currentXhr.status >= 200 && currentXhr.status < 300) {
                     const data = JSON.parse(currentXhr.responseText);
                     document.getElementById('uploadStatusText').textContent = "Upload complete! Processing...";
                     document.getElementById('headerTitle').textContent = "Upload finished";
                     updateProgress(100);
-                    
-                    // Setup Player
+
+                    // Show Success Message
                     setTimeout(() => {
-                        setupPlayer(data.streamUrl);
-                        // Optional: Hide manager after a delay
-                        // manager.style.display = 'none';
-                    }, 1000);
+                        alert("Video upload successfully and it's processing.");
+                        manager.style.display = 'none';
+                    }, 500);
                 } else {
                     document.getElementById('uploadStatusText').textContent = "Upload failed.";
                     document.getElementById('headerTitle').textContent = "Error";
                 }
             });
 
-            currentXhr.addEventListener('error', function() {
+            currentXhr.addEventListener('error', function () {
                 document.getElementById('uploadStatusText').textContent = "Network error.";
             });
 
-            currentXhr.addEventListener('abort', function() {
+            currentXhr.addEventListener('abort', function () {
                 document.getElementById('uploadStatusText').textContent = "Upload cancelled.";
             });
 
@@ -365,28 +367,8 @@
             document.getElementById('progressCircle').style.strokeDashoffset = offset;
         }
 
-        function setupPlayer(src) {
-            const container = document.getElementById('playerContainer');
-            container.style.display = 'block';
-            document.getElementById('streamUrl').textContent = src;
 
-            const video = document.getElementById('video');
-
-            if (Hls.isSupported()) {
-                const hls = new Hls();
-                hls.loadSource(src);
-                hls.attachMedia(video);
-                hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                    video.play();
-                });
-            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                video.src = src;
-                video.addEventListener('loadedmetadata', function() {
-                    video.play();
-                });
-            }
-        }
     </script>
 </body>
-</html>
 
+</html>

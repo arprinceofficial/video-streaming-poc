@@ -7,7 +7,21 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 
+const { PrismaClient } = require('@prisma/client');
+const http = require('http');
+const { Server } = require('socket.io');
+
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+
+const prisma = new PrismaClient();
+
 app.use(cors());
 
 // Ensure directories exist
@@ -38,7 +52,7 @@ app.use(express.static('public'));
 
 // Transcoding Function
 // Transcoding Function
-const transcodeVideo = (inputPath, outputDir, done) => {
+const transcodeVideo = (inputPath, outputDir, videoId, done) => {
     console.log(`Starting transcoding for ${inputPath} to Multi-Quality HLS...`);
 
     // Ensure output directory exists (and subdirectories for variants if needed, 
@@ -127,46 +141,135 @@ const transcodeVideo = (inputPath, outputDir, done) => {
         .on('start', function (commandLine) {
             console.log('Spawned Ffmpeg with command: ' + commandLine);
         })
-        .on('end', () => {
+        .on('end', async () => {
             console.log('Transcoding finished successfully');
+            try {
+                await prisma.video.update({
+                    where: { id: videoId },
+                    data: { status: 'finished' }
+                });
+                io.emit('video_updated', { id: videoId, status: 'finished' });
+            } catch (err) {
+                console.error('Error updating status:', err);
+            }
             done(null);
         })
-        .on('error', (err) => {
+        .on('error', async (err) => {
             console.error('Error transcoding:', err);
+            try {
+                await prisma.video.update({
+                    where: { id: videoId },
+                    data: { status: 'failed' }
+                });
+                io.emit('video_updated', { id: videoId, status: 'failed' });
+            } catch (dbErr) {
+                console.error('Error updating status:', dbErr);
+            }
             done(err);
         })
         .run();
 };
 
 // Upload Endpoint
-app.post('/upload', upload.single('video'), (req, res) => {
+app.post('/upload', upload.single('video'), async (req, res) => {
     if (!req.file) {
         return res.status(400).send('No file uploaded.');
     }
 
-    const videoId = req.file.filename.split('.')[0];
-    const outputDir = path.join(publicDir, 'videos', videoId);
+    const filename = req.file.filename;
+    // We can use the filename as ID or generate a new UUID. 
+    // Prisma generates UUIDs for us if we don't provide ID, but we want to associate it immediately.
+    // Let's create the record first to get the ID.
 
-    console.log(`Video uploaded: ${req.file.path}`);
+    try {
+        const video = await prisma.video.create({
+            data: {
+                title: req.file.originalname,
+                filename: filename,
+                status: 'processing'
+            }
+        });
 
-    // In a real app, you would use a queue (BullMQ) here.
-    // For POC, we start transcoding immediately but asynchronously.
-    transcodeVideo(req.file.path, outputDir, (err) => {
-        if (err) {
-            console.error('Transcoding failed');
-        } else {
-            console.log(`Video available at /videos/${videoId}/master.m3u8`);
+        const videoId = video.id; // Use UUID from DB
+        const outputDir = path.join(publicDir, 'videos', videoId);
+
+        console.log(`Video uploaded: ${req.file.path}`);
+
+        // In a real app, you would use a queue (BullMQ) here.
+        // For POC, we start transcoding immediately but asynchronously.
+        transcodeVideo(req.file.path, outputDir, videoId, (err) => {
+            if (err) {
+                console.error('Transcoding failed');
+            } else {
+                console.log(`Video available at /videos/${videoId}/master.m3u8`);
+            }
+        });
+
+        res.json({
+            message: 'Video upload started. Transcoding in progress...',
+            videoId: videoId,
+            status: 'processing'
+        });
+    } catch (error) {
+        console.error("Error creating video record:", error);
+        res.status(500).send("Database error");
+    }
+});
+
+// GET all videos
+app.get('/videos', async (req, res) => {
+    try {
+        const videos = await prisma.video.findMany({
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json(videos);
+    } catch (error) {
+        console.error("Error fetching videos:", error);
+        res.status(500).send("Error fetching videos");
+    }
+});
+
+// DELETE video
+app.delete('/videos/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const video = await prisma.video.findUnique({ where: { id } });
+        if (!video) {
+            return res.status(404).send("Video not found");
         }
-    });
 
-    res.json({
-        message: 'Video upload started. Transcoding in progress...',
-        videoId: videoId,
-        streamUrl: `/videos/${videoId}/master.m3u8` // Point to MASTER playlist
-    });
+        // Optional: Check if processing (or allow force delete)
+        // if (video.status === 'processing') {
+        //     return res.status(400).send("Cannot delete while processing");
+        // }
+
+        await prisma.video.delete({ where: { id } });
+
+        // Delete files
+        // 1. Delete original upload (if we kept it there, but Multer puts it in 'videos/temp' with a generated name)
+        // logic for deleting original file might need the path if we want to be strict.
+        // req.file.path was uploadDir + filename.
+        const originalPath = path.join(uploadDir, video.filename);
+        if (fs.existsSync(originalPath)) {
+            fs.unlinkSync(originalPath);
+        }
+
+        // 2. Delete HLS output folder
+        const hlsDir = path.join(publicDir, 'videos', id);
+        if (fs.existsSync(hlsDir)) {
+            fs.rmSync(hlsDir, { recursive: true, force: true });
+        }
+
+        io.emit('video_deleted', { id });
+        res.send("Video deleted successfully");
+
+    } catch (error) {
+        console.error("Error deleting video:", error);
+        res.status(500).send("Error deleting video");
+    }
 });
 
 const PORT = 4000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
