@@ -463,7 +463,7 @@
 
         // Socket Events
         socket.on('video_updated', (data) => {
-            updateVideoStatus(data.id, data.status);
+            updateVideoStatus(data.id, data.status, data.s3Url);
         });
 
         socket.on('video_deleted', (data) => {
@@ -485,23 +485,32 @@
             const div = document.createElement('div');
             div.className = 'video-item';
             div.id = `video-${video.id}`;
+
+            const videoUrl = video.s3Url ? video.s3Url : `${window.location.origin}/videos/${video.id}/master.m3u8`;
+
+            // Inline styles for status badge based on status
+            let statusStyle = 'display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 500; margin-top: 8px; width: fit-content; ';
+            if (video.status === 'processing') statusStyle += 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;';
+            else if (video.status === 'finished') statusStyle += 'background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;';
+            else if (video.status === 'failed') statusStyle += 'background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;';
+
             div.innerHTML = `
-                <div class="video-header">
-                    <div class="video-info">
-                        <div class="video-title">${video.title}</div>
-                        <div class="video-meta">${new Date(video.createdAt).toLocaleString()}</div>
-                        <div class="status-badge status-${video.status}" id="status-${video.id}">
+                <div class="video-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <div class="video-info" style="display: flex; flex-direction: column;">
+                        <div class="video-title" style="font-size: 1.1rem; font-weight: 500; margin-bottom: 4px;">${video.title}</div>
+                        <div class="video-meta" style="font-size: 0.9rem; color: #606060;">${new Date(video.createdAt).toLocaleString()}</div>
+                        <div class="status-badge status-${video.status}" id="status-${video.id}" style="${statusStyle}">
                             ${video.status.toUpperCase()}
                         </div>
                     </div>
-                    <div class="video-actions">
-                        <button class="btn btn-watch" id="btn-watch-${video.id}" onclick="watchVideo('${video.id}', '${video.title}')">Watch</button>
-                        <button class="btn btn-delete" id="btn-delete-${video.id}" onclick="deleteVideo('${video.id}')">Delete</button>
+                    <div class="video-actions" style="display: flex; gap: 12px;">
+                        <button class="btn btn-watch" id="btn-watch-${video.id}" onclick="watchVideo('${video.id}', '${video.title}', '${videoUrl}')" style="padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-weight: 500; font-size: 0.9rem; background-color: #065fd4; color: #ffffff; display: none;">Watch</button>
+                        <button class="btn btn-delete" id="btn-delete-${video.id}" onclick="deleteVideo('${video.id}')" style="padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-weight: 500; font-size: 0.9rem; background-color: #ffffff; color: #cc0000; border: 1px solid #cc0000; display: none;">Delete</button>
                     </div>
                 </div>
-                <div class="url-container" id="url-container-${video.id}">
-                    <div class="url-text" id="url-text-${video.id}">${window.location.origin}/videos/${video.id}/master.m3u8</div>
-                    <button class="btn-copy" onclick="copyUrl('${video.id}')">Copy</button>
+                <div class="url-container" id="url-container-${video.id}" style="display: none; margin-top: 8px; background: #f0f0f0; padding: 8px; border-radius: 4px; font-size: 0.85rem; color: #606060; align-items: center; gap: 8px; border: 1px solid #e5e5e5;">
+                    <div class="url-text" id="url-text-${video.id}" style="flex: 1; word-break: break-all; font-family: monospace;">${videoUrl}</div>
+                    <button class="btn-copy" onclick="copyUrl('${video.id}')" style="background: none; border: 1px solid #ccc; color: #606060; padding: 4px 8px; font-size: 0.8rem; border-radius: 4px; cursor: pointer;">Copy</button>
                 </div>
             `;
 
@@ -517,7 +526,7 @@
             return div;
         }
 
-        function updateVideoStatus(id, status) {
+        function updateVideoStatus(id, status, s3Url) {
             const videoItem = document.getElementById(`video-${id}`);
             if (videoItem) {
                 const statusBadge = document.getElementById(`status-${id}`);
@@ -527,11 +536,30 @@
                 statusBadge.className = `status-badge status-${status}`;
                 statusBadge.textContent = status.toUpperCase();
 
+                // Inline styles for status badge based on status
+                let statusStyle = 'display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 500; margin-top: 8px; width: fit-content; ';
+                if (status === 'processing') statusStyle += 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;';
+                else if (status === 'finished') statusStyle += 'background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;';
+                else if (status === 'failed') statusStyle += 'background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;';
+                statusBadge.style.cssText = statusStyle;
+
                 if (status === 'finished') {
                     watchBtn.style.display = 'block';
                     deleteBtn.style.display = 'block';
-                    if (videoItem.querySelector('.url-container')) {
-                        videoItem.querySelector('.url-container').style.display = 'flex';
+                    const urlContainer = videoItem.querySelector('.url-container');
+                    const urlText = videoItem.querySelector('.url-text');
+
+                    if (urlContainer) {
+                        urlContainer.style.display = 'flex';
+                        const videoUrl = s3Url ? s3Url : `${window.location.origin}/videos/${id}/master.m3u8`;
+                        urlText.textContent = videoUrl;
+
+                        // Update watch button onclick
+                        // Get current title - simpler way is to read DOM, but better to fetch/store. 
+                        // For now we assume title is in DOM or we passed it. The passed 'title' in onclick is minimal.
+                        // We can just update the attribute.
+                        const currentTitle = videoItem.querySelector('.video-title').textContent;
+                        watchBtn.setAttribute('onclick', `watchVideo('${id}', '${currentTitle}', '${videoUrl}')`);
                     }
                 } else {
                     watchBtn.style.display = 'none';
@@ -540,16 +568,6 @@
                         videoItem.querySelector('.url-container').style.display = 'none';
                     }
                 }
-            } else {
-                // Ideally fetch the new list or add individual item if we had full data
-                // For now, let's reload if a new video appeared that we don't have? 
-                // Alternatively, the socket event 'video_updated' usually happens after upload+transcode.
-                // But the 'upload' happens via POST, so the user might already be on this page.
-                // If a NEW video is created, we might need a 'video_created' event or just refresh.
-                // For now, if we don't have it, we ignore or user refreshes.
-
-                // If the user navigates here AFTER upload, they see the list.
-                // The update is for changes.
             }
         }
 
@@ -577,11 +595,11 @@
             }
         }
 
-        function watchVideo(id, title) {
+        function watchVideo(id, title, url) {
             document.getElementById('modalTitle').textContent = title;
             watchModal.style.display = 'flex';
 
-            const src = `/videos/${id}/master.m3u8`;
+            const src = url || `/videos/${id}/master.m3u8`;
 
             if (Hls.isSupported()) {
                 if (hlsObj) {

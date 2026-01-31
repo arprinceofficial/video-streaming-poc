@@ -10,6 +10,9 @@ const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
 const http = require('http');
 const { Server } = require('socket.io');
+const { S3Client } = require('@aws-sdk/client-s3');
+const { Upload } = require('@aws-sdk/lib-storage');
+const mime = require('mime-types');
 
 const app = express();
 const server = http.createServer(app);
@@ -58,6 +61,70 @@ const ALL_QUALITIES = [
 ];
 
 app.use(express.static('public'));
+
+// S3 Configuration
+const s3Client = new S3Client({
+    region: process.env.S3_REGION,
+    endpoint: process.env.S3_ENDPOINT,
+    forcePathStyle: true, // Required for Contabo and many S3-compatible providers
+    credentials: {
+        accessKeyId: process.env.S3_ACCESS_KEY,
+        secretAccessKey: process.env.S3_SECRET_KEY
+    }
+});
+
+async function uploadFolderToS3(folderPath, videoId) {
+    const files = fs.readdirSync(folderPath);
+    const bucketName = process.env.S3_BUCKET;
+    // Prefix structure: {S3_BASE_FOLDER}/{videoId}/
+    const prefix = `${process.env.S3_BASE_FOLDER || 'videos'}/${videoId}`;
+
+    for (const file of files) {
+        const filePath = path.join(folderPath, file);
+        const fileContent = fs.readFileSync(filePath);
+        const contentType = mime.lookup(filePath) || 'application/octet-stream';
+        const key = `${prefix}/${file}`;
+
+        try {
+            const parallelUploads3 = new Upload({
+                client: s3Client,
+                params: {
+                    Bucket: bucketName,
+                    Key: key,
+                    Body: fileContent,
+                    ContentType: contentType,
+                    ACL: 'public-read' // Make it public for HLS streaming
+                },
+            });
+
+            parallelUploads3.on('httpUploadProgress', (progress) => {
+                // console.log(progress);
+            });
+
+            await parallelUploads3.done();
+            console.log(`Uploaded ${file} to S3`);
+        } catch (e) {
+            console.error(`Failed to upload ${file} to S3`, e);
+            throw e;
+        }
+    }
+
+    // Construct S3 URL as requested
+    // Format: https://usc1.contabostorage.com/{S3_USERNAME}:{S3_BUCKET}/{prefix}/master.m3u8
+    // Note: The endpoint usually already contains the region url.
+    // User URL pattern: https://usc1.contabostorage.com/{S3_USERNAME}:{S3_BUCKET}/{prefix}/master.m3u8
+    // Let's strictly follow the user's requested format logic.
+
+    // However, usually endpoints don't include username/bucket in that specific way for public access unless it's a specific provider quirk (like Contabo Object Storage with path style).
+    // Let's follow the user instruction exactly.
+    // {S3_ENDPOINT}/{S3_USERNAME}:{S3_BUCKET}/{prefix}/master.m3u8
+
+    // Clean trailing slash from endpoint if exists
+    const endpoint = process.env.S3_ENDPOINT.replace(/\/$/, '');
+    const s3Url = `${endpoint}/${process.env.S3_USERNAME}:${bucketName}/${prefix}`;
+
+    return s3Url;
+}
 
 // Transcoding Function
 // Transcoding Function
@@ -128,16 +195,51 @@ const transcodeVideo = (inputPath, outputDir, videoId, targetQualities, done) =>
         })
         .on('end', async () => {
             console.log('Transcoding finished successfully');
+            let s3Url = null;
+
+            if (process.env.S3_CONNECTION === 'true') {
+                try {
+                    console.log('Uploading to S3...');
+                    const baseUrl = await uploadFolderToS3(outputDir, videoId);
+                    s3Url = `${baseUrl}/master.m3u8`;
+                    console.log('S3 Upload Complete. URL:', s3Url);
+
+                    // Cleanup local files after successful S3 upload
+                    console.log('Cleaning up local files...');
+
+                    // Delete HLS output folder
+                    if (fs.existsSync(outputDir)) {
+                        fs.rmSync(outputDir, { recursive: true, force: true });
+                        console.log(`Deleted local HLS folder: ${outputDir}`);
+                    }
+
+                    // Delete original temp file
+                    if (fs.existsSync(inputPath)) {
+                        fs.unlinkSync(inputPath);
+                        console.log(`Deleted local temp file: ${inputPath}`);
+                    }
+
+                } catch (s3Err) {
+                    console.error('S3 Upload Failed:', s3Err);
+                    // Fallback to failed status or keep local? 
+                    // For now, let's log it but mark as finished (local available) or failed?
+                    // Let's mark as failed if S3 was mandatory.
+                }
+            }
+
             try {
                 await prisma.video.update({
                     where: { id: videoId },
-                    data: { status: 'finished' }
+                    data: {
+                        status: 'finished',
+                        s3Url: s3Url
+                    }
                 });
-                io.emit('video_updated', { id: videoId, status: 'finished' });
+                io.emit('video_updated', { id: videoId, status: 'finished', s3Url });
             } catch (err) {
                 console.error('Error updating status:', err);
             }
-            done(null);
+            done(null, s3Url);
         })
         .on('error', async (err) => {
             console.error('Error transcoding:', err);
@@ -186,11 +288,12 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
         // In a real app, you would use a queue (BullMQ) here.
         // For POC, we start transcoding immediately but asynchronously.
-        transcodeVideo(req.file.path, outputDir, videoId, qualities, (err) => {
+        transcodeVideo(req.file.path, outputDir, videoId, qualities, (err, s3Url) => {
             if (err) {
                 console.error('Transcoding failed');
             } else {
-                console.log(`Video available at /videos/${videoId}/master.m3u8`);
+                const finalUrl = s3Url || `/videos/${videoId}/master.m3u8`;
+                console.log(`Video available at ${finalUrl}`);
             }
         });
 

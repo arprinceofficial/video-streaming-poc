@@ -15,5 +15,6 @@ model Video {
   title     String
   filename  String
   status    String   @default("processing") // processing, finished, failed
+  s3Url     String?  // URL for S3 storage
   createdAt DateTime @default(now())
 }
