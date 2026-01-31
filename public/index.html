@@ -566,11 +566,10 @@
                     document.getElementById('cardProgressText').textContent = "Upload complete! Processing...";
                     updateProgress(100);
 
-                    // Show Success Message
+                    // Redirect to videos list
                     setTimeout(() => {
-                        alert("Video upload successfully and it's processing.");
-                        manager.style.display = 'none';
-                        resetSelection(); // Reset card to initial state
+                        // alert("Video upload successfully and it's processing.");
+                        window.location.href = '/videos.html';
                     }, 500);
                 } else {
                     document.getElementById('uploadStatusText').textContent = "Upload failed.";
