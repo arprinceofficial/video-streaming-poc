@@ -1,82 +1,89 @@
 # Video Streaming POC
 
-A Proof of Concept (POC) for a video streaming backend similar to YouTube, built with Node.js. This application handles video uploads, transcodes them into HLS (HTTP Live Streaming) format using FFmpeg, and streams them back to the client.
+A YouTube-like video streaming Proof of Concept (POC) built with Node.js, Express, FFmpeg, and Prisma. Features include video upload, multi-quality HLS transcoding (360p to 4K), S3 storage integration, and a responsive UI.
 
 ## Features
 
-- **Video Upload**: Upload video files (MP4) via a simple web interface.
-- **Transcoding**: Automatically converts uploaded videos to HLS format (m3u8) with a 720p profile.
-- **Streaming**: Plays back the HLS stream using `hls.js`.
-- **Backend**: built with Express.js and `fluent-ffmpeg`.
+- **Video Upload**: Drag-and-drop interface with progress tracking.
+- **Transcoding**: Automatic transcoding to HLS format with multiple resolutions (360p, 480p, 720p, 1080p, 4K).
+- **Adaptive Streaming**: HLS playback using `hls.js`.
+- **Storage**:
+  - Local filesystem storage.
+  - Optional S3-compatible cloud storage support (e.g., AWS, Contabo).
+- **Responsive UI**: Mobile-friendly video list and player.
+- **Search & Pagination**: Server-side pagination and search functionality.
 
 ## Prerequisites
 
-- **Node.js**: (v14 or higher recommended)
-- **NPM**: Included with Node.js.
-- **System Dependencies**: The project uses `ffmpeg-static`, so a local FFmpeg installation is not strictly required for the app to run, but having standard libraries is good practice.
+- **Node.js** (v18 or higher recommended)
+- **PostgreSQL** (running locally or remotely)
+- **FFmpeg** (installed via `ffmpeg-static` in the project, but having it on system is good practice)
 
 ## Installation
 
-1. Clone the repository (or unzip the project files).
-2. Navigate to the project directory:
-   ```bash
-   cd video-streaming-poc
-   ```
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
+1.  **Clone the repository**:
+    ```bash
+    git clone <repository-url>
+    cd video-streaming-poc
+    ```
+
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+
+3.  **Database Config**:
+    Ensure you have a PostgreSQL database running. Update the `DATABASE_URL` in your `.env` file (see Configuration).
+
+4.  **Run Migrations**:
+    Apply the database schema:
+    ```bash
+    npx prisma migrate dev
+    ```
+
+## Configuration
+
+Create a `.env` file in the root directory with the following variables:
+
+```env
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/video_poc"
+
+# S3 Storage (Optional)
+# Set S3_CONNECTION to true to upload transcoded files to S3.
+S3_CONNECTION=true
+S3_BUCKET="your-bucket-name"
+S3_REGION="usc1"
+S3_ENDPOINT="https://usc1.contabostorage.com"
+S3_ACCESS_KEY="your-access-key"
+S3_SECRET_KEY="your-secret-key"
+S3_USERNAME="your-s3-username" # Used for constructing the public URL
+S3_BASE_FOLDER="hls-videos"     # Folder prefix in the bucket
+```
 
 ## Running the Application
 
-1. Start the development server:
-   ```bash
-   npm run dev
-   ```
-   The server will start on port **4000**.
+Start the development server:
 
-2. Open your browser and navigate to:
-   http://localhost:4000
+```bash
+npm run dev
+```
 
-## Remote Access (Optional)
-
-If you need to access the application from a different device or share a preview URL, you can use `localtunnel`.
-
-1. **Start the tunnel**:
-   ```bash
-   npx localtunnel --port 4000
-   ```
-2. **Access the URL**:
-   Open the URL provided by the command (e.g., `https://fair-badgers-occur.loca.lt`).
-3. **Enter the Password**:
-   Localtunnel requires a password (your public IP) to access the page. You can retrieve it by running:
-   ```bash
-   curl https://loca.lt/mytunnelpassword
-   ```
-   Copy the output IP address and paste it into the tunnel page.
-
-## Usage Guide
-
-1. **Upload**: 
-   - Operations: Click "Choose File" and select an MP4 video.
-   - Click "Upload".
-   - **Note**: The transcoding process starts immediately. For larger files, this may take some time.
-
-2. **Playback**:
-   - Once the transcoding is sufficiently advanced, the player will appear.
-   - Click the Play button to start streaming.
+The server will start on **port 4000**.
+Access the application at: [http://localhost:4000](http://localhost:4000)
 
 ## Project Structure
 
-- **index.js**: Main application entry point. Handles Express server, API routes, and transcoding logic.
-- **videos/temp/**: Temporary storage for raw uploaded files.
-- **public/videos/**: Storage for processed HLS streams (segments and playlists).
-- **public/**: Static files (the HTML frontend).
+- `index.js`: Main server file handling uploads, transcoding, and API routes.
+- `prisma/schema.prisma`: Database schema definition.
+- `public/`: Static frontend files (`index.html`, `videos.html`).
+- `videos/temp/`: Temporary storage for uploaded raw video files (cleaned up after S3 upload).
 
-## Technical Details
+## S3 Integration Guide
 
-- **Express**: Web server framework.
-- **Multer**: Middleware for handling `multipart/form-data` (file uploads).
-- **Fluent-FFmpeg**: Abstraction layer for FFmpeg commands.
-- **FFmpeg-static**: Provides static FFmpeg binaries.
-- **HLS.js**: JavaScript library for playing HLS in browsers that don't support it natively.
+If `S3_CONNECTION=true` is set:
+1.  Video is uploaded to the server first.
+2.  FFmpeg transcodes the video to HLS format locally.
+3.  The HLS contents are uploaded to the configured S3 bucket.
+4.  Local temporary files are deleted to save space.
+5.  The database records the S3 URL for playback.
