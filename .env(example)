@@ -1,4 +1,5 @@
 DATABASE_URL="postgresql://username:password@localhost:5432/video_poc"
+S3_CONNECTION=true
 S3_BUCKET=""
 S3_REGION=""
 S3_ENDPOINT=""
