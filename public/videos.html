@@ -58,16 +58,25 @@
             background-color: var(--primary-color);
             border-radius: 4px;
             display: inline-block;
-            margin-bottom: 20px;
             transition: background-color 0.2s;
+            white-space: nowrap;
         }
 
         .back-btn:hover {
             background-color: #0551b4;
         }
 
-        .search-container {
+        .controls-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
             margin-bottom: 20px;
+            margin-top: 20px;
+        }
+
+        .search-container {
+            flex: 1;
             display: flex;
             gap: 10px;
         }
@@ -340,12 +349,11 @@
     </header> -->
 
     <div class="main-content">
-        <div style="text-align: right; margin-top: 20px;">
+        <div class="controls-header">
+            <div class="search-container">
+                <input type="text" id="searchInput" class="search-input" placeholder="Search videos...">
+            </div>
             <a href="/" class="back-btn">Back to Upload</a>
-        </div>
-
-        <div class="search-container">
-            <input type="text" id="searchInput" class="search-input" placeholder="Search videos...">
         </div>
 
         <div id="videoList" class="video-list">
