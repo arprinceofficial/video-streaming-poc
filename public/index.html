@@ -86,15 +86,91 @@
             padding: 8px 16px;
             background-color: var(--primary-color);
             border-radius: 4px;
-            display: inline-block;
-            margin-bottom: 20px;
-            transition: background-color 0.2s;
+            font-weight: 500;
+            cursor: pointer;
             font-size: 1rem;
             margin-top: 16px;
+            transition: background-color 0.2s;
         }
 
         .upload-btn:hover {
             background-color: #0551b4;
+        }
+
+        .upload-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .upload-card.drag-over {
+            border-color: var(--primary-color);
+            background-color: rgba(6, 95, 212, 0.05);
+        }
+
+        .selected-file-info {
+            display: none;
+            /* Hidden by default */
+            margin-top: 10px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        /* Uploading View */
+        .uploading-view {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .loader-ring {
+            display: inline-block;
+            position: relative;
+            width: 80px;
+            height: 80px;
+        }
+
+        .loader-ring div {
+            box-sizing: border-box;
+            display: block;
+            position: absolute;
+            width: 64px;
+            height: 64px;
+            margin: 8px;
+            border: 8px solid var(--primary-color);
+            border-radius: 50%;
+            animation: loader-ring 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+            border-color: var(--primary-color) transparent transparent transparent;
+        }
+
+        .loader-ring div:nth-child(1) {
+            animation-delay: -0.45s;
+        }
+
+        .loader-ring div:nth-child(2) {
+            animation-delay: -0.3s;
+        }
+
+        .loader-ring div:nth-child(3) {
+            animation-delay: -0.15s;
+        }
+
+        @keyframes loader-ring {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .upload-progress-text {
+            margin-top: 16px;
+            font-size: 1.1rem;
+            color: var(--text-primary);
+            font-weight: 500;
         }
 
         /* Player Section */
@@ -273,13 +349,36 @@
 
     <div class="main-content">
         <div style="text-align: right; margin-top: 20px;">
-            <a href="/videos.html" class="upload-btn" style="text-decoration: none; display: inline-block;">Show All
+            <a href="/videos.html" class="upload-btn"
+                style="text-decoration: none; display: inline-block; margin-bottom: 20px;">Show All
                 Videos</a>
         </div>
-        <div class="upload-card" onclick="document.getElementById('videoInput').click()">
-            <div class="upload-icon">↑</div>
-            <h3>Select video to upload</h3>
-            <!-- <p style="color: var(--text-secondary)">Or drag and drop video files</p> -->
+        <div class="upload-card" id="uploadCard">
+            <div id="initialView">
+                <div class="upload-icon">↑</div>
+                <h3>Select video to upload</h3>
+                <p style="color: var(--text-secondary)">Or drag and drop video files</p>
+                <button class="upload-btn" onclick="document.getElementById('videoInput').click()">SELECT FILES</button>
+            </div>
+
+            <div id="selectedView" style="display: none;">
+                <div class="upload-icon" style="font-size: 3rem;">📄</div>
+                <h3 id="selectedFileName">filename.mp4</h3>
+                <button class="upload-btn" onclick="startUpload()">UPLOAD VIDEO</button>
+                <button class="upload-btn"
+                    style="background-color: transparent; color: var(--danger-color); border: 1px solid var(--danger-color); margin-left: 10px;"
+                    onclick="resetSelection()">CANCEL</button>
+            </div>
+
+            <div id="uploadingView" class="uploading-view">
+                <div class="loader-ring">
+                    <div></div>
+                    <div></div>
+                    <div></div>
+                    <div></div>
+                </div>
+                <div class="upload-progress-text" id="cardProgressText">Uploading... 0%</div>
+            </div>
 
             <div class="quality-selector" onclick="event.stopPropagation()">
                 <!-- <label class="quality-label"><input type="checkbox" name="quality" value="360p"> 360p</label> -->
@@ -290,7 +389,6 @@
                 <label class="quality-label"><input type="checkbox" name="quality" value="2160p" checked> 4K</label>
             </div>
 
-            <button class="upload-btn">SELECT FILES</button>
             <input type="file" id="videoInput" class="hidden-input" accept="video/mp4,video/*"
                 onchange="handleFileSelect(event)">
         </div>
@@ -324,20 +422,68 @@
     <script>
         let currentXhr = null;
         let startTime = 0;
+        let selectedFile = null;
+
+        const uploadCard = document.getElementById('uploadCard');
+
+        // Drag and Drop Listeners
+        uploadCard.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadCard.classList.add('drag-over');
+        });
+
+        uploadCard.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadCard.classList.remove('drag-over');
+        });
+
+        uploadCard.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadCard.classList.remove('drag-over');
+            if (e.dataTransfer.files.length > 0) {
+                handleFiles(e.dataTransfer.files[0]);
+            }
+        });
 
         function handleFileSelect(event) {
-            const file = event.target.files[0];
-            if (file) {
-                uploadVideo(file);
+            if (event.target.files.length > 0) {
+                handleFiles(event.target.files[0]);
             }
-            // Reset input so same file can be selected again if needed
-            event.target.value = '';
+            // Reset input handled in resetSelection or after upload
+        }
+
+        function handleFiles(file) {
+            if (!file) return;
+            selectedFile = file;
+
+            // UI Update: switch to selected view
+            document.getElementById('initialView').style.display = 'none';
+            document.getElementById('selectedView').style.display = 'block';
+            document.getElementById('selectedFileName').textContent = file.name;
+        }
+
+        function resetSelection() {
+            selectedFile = null;
+            document.getElementById('initialView').style.display = 'block';
+            document.getElementById('selectedView').style.display = 'none';
+            document.getElementById('uploadingView').style.display = 'none'; // Ensure loader is hidden
+            document.getElementById('videoInput').value = ''; // Clear input
+        }
+
+        function startUpload() {
+            if (selectedFile) {
+                uploadVideo(selectedFile);
+            }
         }
 
         function uploadVideo(file) {
-            // Show Manager
+            // Show Manager and Update Card View
             const manager = document.getElementById('uploadManager');
             manager.style.display = 'flex';
+
+            // Switch Card View
+            document.getElementById('selectedView').style.display = 'none';
+            document.getElementById('uploadingView').style.display = 'flex';
 
             document.getElementById('uploadFileName').textContent = file.name;
             document.getElementById('headerTitle').textContent = "Uploading 1 video";
@@ -380,6 +526,7 @@
 
                     updateProgress(percentComplete);
                     document.getElementById('uploadStatusText').textContent = `${Math.round(percentComplete)}% • ${timeLeftStr}`;
+                    document.getElementById('cardProgressText').textContent = `Uploading... ${Math.round(percentComplete)}%`;
                 }
             });
 
@@ -388,12 +535,14 @@
                     const data = JSON.parse(currentXhr.responseText);
                     document.getElementById('uploadStatusText').textContent = "Upload complete! Processing...";
                     document.getElementById('headerTitle').textContent = "Upload finished";
+                    document.getElementById('cardProgressText').textContent = "Upload complete! Processing...";
                     updateProgress(100);
 
                     // Show Success Message
                     setTimeout(() => {
                         alert("Video upload successfully and it's processing.");
                         manager.style.display = 'none';
+                        resetSelection(); // Reset card to initial state
                     }, 500);
                 } else {
                     document.getElementById('uploadStatusText').textContent = "Upload failed.";
