@@ -48,96 +48,81 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+const ALL_QUALITIES = [
+    { name: '360p', height: 360, bitrate: '800k', bufsize: '1200k', audioBitrate: '96k' },
+    { name: '480p', height: 480, bitrate: '1400k', bufsize: '2100k', audioBitrate: '128k' },
+    { name: '720p', height: 720, bitrate: '2800k', bufsize: '4200k', audioBitrate: '128k' },
+    { name: '1080p', height: 1080, bitrate: '5000k', bufsize: '7500k', audioBitrate: '192k' },
+    { name: '1440p', height: 1440, bitrate: '9000k', bufsize: '13500k', audioBitrate: '192k' },
+    { name: '2160p', height: 2160, bitrate: '17000k', bufsize: '25500k', audioBitrate: '192k' }
+];
+
 app.use(express.static('public'));
 
 // Transcoding Function
 // Transcoding Function
-const transcodeVideo = (inputPath, outputDir, videoId, done) => {
+const transcodeVideo = (inputPath, outputDir, videoId, targetQualities, done) => {
     console.log(`Starting transcoding for ${inputPath} to Multi-Quality HLS...`);
+    console.log(`Target Qualities: ${targetQualities ? targetQualities.join(', ') : 'Default (All)'}`);
 
-    // Ensure output directory exists (and subdirectories for variants if needed, 
-    // but ffmpeg var_stream_map with pattern usually handles this if parent exists. 
-    // Safest is to let ffmpeg create files in the outputDir).
     if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    // Create a robust ffmpeg command for ABR
-    ffmpeg(inputPath)
-        .addOptions([
-            // Map the video and audio streams 6 times (for 6 qualities)
-            '-map 0:v:0', '-map 0:a:0', // 360p
-            '-map 0:v:0', '-map 0:a:0', // 480p
-            '-map 0:v:0', '-map 0:a:0', // 720p
-            '-map 0:v:0', '-map 0:a:0', // 1080p
-            '-map 0:v:0', '-map 0:a:0', // 1440p (2K)
-            '-map 0:v:0', '-map 0:a:0', // 2160p (4K)
+    // Filter qualities based on user selection, or use all if none/invalid provided
+    let selectedQualities = ALL_QUALITIES;
+    if (targetQualities && targetQualities.length > 0) {
+        selectedQualities = ALL_QUALITIES.filter(q => targetQualities.includes(q.name));
+    }
+    // Fallback if filtering resulted in empty (shouldn't happen if validation is good, but safety first)
+    if (selectedQualities.length === 0) {
+        selectedQualities = [ALL_QUALITIES[0]]; // Default to lowest quality
+    }
 
-            // Video codec
-            '-c:v h264',
-            '-crf 22',
-            '-g 48',
-            '-keyint_min 48',
-            '-sc_threshold 0',
-            '-reset_timestamps 1',
-            '-preset veryfast', // Speed up encoding for 4K
+    const ffmpegCommand = ffmpeg(inputPath);
+    const options = [
+        '-c:v h264',
+        '-crf 22',
+        '-g 48',
+        '-keyint_min 48',
+        '-sc_threshold 0',
+        '-reset_timestamps 1',
+        '-preset veryfast',
+        '-c:a aac',
+        '-ar 48000'
+    ];
 
-            // Audio codec
-            '-c:a aac',
-            '-ar 48000',
+    const streamMap = [];
 
-            // --- 360p Stream (Stream 0) ---
-            '-filter:v:0 scale=w=-2:h=360',
-            '-maxrate:v:0 800k', '-bufsize:v:0 1200k',
-            '-b:a:0 96k',
+    selectedQualities.forEach((q, index) => {
+        // Map streams
+        options.push('-map 0:v:0', '-map 0:a:0');
 
-            // --- 480p Stream (Stream 1) ---
-            '-filter:v:1 scale=w=-2:h=480',
-            '-maxrate:v:1 1400k', '-bufsize:v:1 2100k',
-            '-b:a:1 128k',
+        // Video Filters & Settings
+        options.push(`-filter:v:${index} scale=w=-2:h=${q.height}`);
+        options.push(`-maxrate:v:${index} ${q.bitrate}`, `-bufsize:v:${index} ${q.bufsize}`);
 
-            // --- 720p Stream (Stream 2) ---
-            '-filter:v:2 scale=w=-2:h=720',
-            '-maxrate:v:2 2800k', '-bufsize:v:2 4200k',
-            '-b:a:2 128k',
+        // Audio Settings
+        options.push(`-b:a:${index} ${q.audioBitrate}`);
 
-            // --- 1080p Stream (Stream 3) ---
-            '-filter:v:3 scale=w=-2:h=1080',
-            '-maxrate:v:3 5000k', '-bufsize:v:3 7500k',
-            '-b:a:3 192k',
+        // Stream Map entry
+        streamMap.push(`v:${index},a:${index}`);
+    });
 
-            // --- 1440p Stream (Stream 4) ---
-            '-filter:v:4 scale=w=-2:h=1440',
-            '-maxrate:v:4 9000k', '-bufsize:v:4 13500k',
-            '-b:a:4 192k',
+    options.push(
+        '-f hls',
+        '-hls_time 6',
+        '-hls_playlist_type vod',
+        '-hls_flags independent_segments',
+        '-var_stream_map', streamMap.join(' '),
+        '-master_pl_name master.m3u8',
+        '-hls_segment_filename ' + path.join(outputDir, 'v%v_segment%d.ts')
+    );
 
-            // --- 2160p Stream (Stream 5) ---
-            '-filter:v:5 scale=w=-2:h=2160',
-            '-maxrate:v:5 17000k', '-bufsize:v:5 25500k',
-            '-b:a:5 192k',
+    ffmpegCommand
+        .addOptions(options)
+        .output(path.join(outputDir, 'v%v_code.m3u8'))
 
-            // HLS Settings
-            '-f hls',
-            '-hls_time 6',
-            '-hls_playlist_type vod',
-            '-hls_flags independent_segments',
-
-            // Creating the variant streams and master playlist
-            '-var_stream_map', 'v:0,a:0 v:1,a:1 v:2,a:2 v:3,a:3 v:4,a:4 v:5,a:5',
-
-            // Naming convention for the segments and playlists
-            // outputDir/v0/fileSequence0.ts, outputDir/v1/..., etc.
-            // But to keep it simple in one folder or use pattern:
-            // We'll use a pattern that creates subdirectories v%v (v0, v1, v2)
-            // You may need to create these folders manually if ffmpeg doesn't.
-            // Let's use a flat structure with prefixes to be safe and simple:
-            // v0_segment...
-            // OR robust usage with "%v":
-
-            '-master_pl_name master.m3u8',
-            '-hls_segment_filename ' + path.join(outputDir, 'v%v_segment%d.ts')
-        ])
-        .output(path.join(outputDir, 'v%v_code.m3u8')) // Variant playlists
         .on('start', function (commandLine) {
             console.log('Spawned Ffmpeg with command: ' + commandLine);
         })
@@ -177,6 +162,10 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     }
 
     const filename = req.file.filename;
+    let qualities = req.body.qualities;
+    if (typeof qualities === 'string') {
+        qualities = qualities.split(',');
+    }
     // We can use the filename as ID or generate a new UUID. 
     // Prisma generates UUIDs for us if we don't provide ID, but we want to associate it immediately.
     // Let's create the record first to get the ID.
@@ -197,7 +186,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 
         // In a real app, you would use a queue (BullMQ) here.
         // For POC, we start transcoding immediately but asynchronously.
-        transcodeVideo(req.file.path, outputDir, videoId, (err) => {
+        transcodeVideo(req.file.path, outputDir, videoId, qualities, (err) => {
             if (err) {
                 console.error('Transcoding failed');
             } else {
