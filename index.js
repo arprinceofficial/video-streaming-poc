@@ -259,6 +259,19 @@ app.delete('/videos/:id', async (req, res) => {
 });
 
 const PORT = 4000;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
+
+    // Crash Recovery: Mark stuck 'processing' videos as 'failed'
+    try {
+        const result = await prisma.video.updateMany({
+            where: { status: 'processing' },
+            data: { status: 'failed' }
+        });
+        if (result.count > 0) {
+            console.log(`Crash recovery: Marked ${result.count} stuck videos as 'failed'.`);
+        }
+    } catch (error) {
+        console.error("Error during crash recovery:", error);
+    }
 });
